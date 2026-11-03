@@ -1,0 +1,2167 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Телефон/планшет: есть сенсорный ввод.
+local isMobile = UserInputService.TouchEnabled
+
+local THEME = {
+	background = Color3.fromRGB(22, 23, 28),
+	surface = Color3.fromRGB(32, 34, 42),
+	surfaceSoft = Color3.fromRGB(44, 47, 57),
+	stroke = Color3.fromRGB(58, 62, 74),
+	text = Color3.fromRGB(238, 240, 245),
+	muted = Color3.fromRGB(138, 144, 160),
+	accent = Color3.fromRGB(112, 96, 255),
+}
+
+local accentListeners = {}
+local menuWidth, menuHeight = 520, 340
+
+local tweenFast = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local tweenMed = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local old = playerGui:FindFirstChild("ModernMenu")
+if old then
+	old:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "ModernMenu"
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 999
+gui.Parent = playerGui
+
+local shadow = Instance.new("Frame")
+shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+shadow.Position = UDim2.fromScale(0.5, 0.5)
+shadow.Size = UDim2.fromOffset(menuWidth + 20, menuHeight + 22)
+shadow.BackgroundColor3 = Color3.new(0, 0, 0)
+shadow.BackgroundTransparency = 0.65
+shadow.BorderSizePixel = 0
+shadow.ZIndex = 0
+shadow.Parent = gui
+Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 18)
+
+local root = Instance.new("Frame")
+root.AnchorPoint = Vector2.new(0.5, 0.5)
+root.Position = UDim2.fromScale(0.5, 0.5)
+root.Size = UDim2.fromOffset(menuWidth, menuHeight)
+root.BackgroundColor3 = THEME.background
+root.BorderSizePixel = 0
+root.ClipsDescendants = true
+root.Parent = gui
+Instance.new("UICorner", root).CornerRadius = UDim.new(0, 14)
+
+local rootStroke = Instance.new("UIStroke")
+rootStroke.Color = THEME.stroke
+rootStroke.Thickness = 1
+rootStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+rootStroke.Parent = root
+
+-- На телефоне меню не влезает в экран целиком — уменьшаем его.
+if isMobile then
+	local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+		or Vector2.new(800, 600)
+	local fit = math.min(1, (viewport.X - 24) / menuWidth, (viewport.Y - 24) / menuHeight)
+	local rootScale = Instance.new("UIScale")
+	rootScale.Scale = fit
+	rootScale.Parent = root
+	local shadowScale = Instance.new("UIScale")
+	shadowScale.Scale = fit
+	shadowScale.Parent = shadow
+end
+
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 44)
+header.BackgroundTransparency = 1
+header.Parent = root
+
+local title = Instance.new("TextLabel")
+title.Position = UDim2.fromOffset(16, 0)
+title.Size = UDim2.new(1, -60, 1, 0)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 15
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextColor3 = THEME.text
+title.Text = "t.me/money_caoff"
+title.Parent = header
+
+local closeButton = Instance.new("TextButton")
+closeButton.AnchorPoint = Vector2.new(1, 0.5)
+closeButton.Position = UDim2.new(1, -10, 0.5, 0)
+closeButton.Size = UDim2.fromOffset(26, 26)
+closeButton.BackgroundColor3 = THEME.surface
+closeButton.AutoButtonColor = false
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Text = "×"
+closeButton.TextSize = 18
+closeButton.TextColor3 = THEME.muted
+closeButton.Parent = header
+Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 8)
+
+local separator = Instance.new("Frame")
+separator.Position = UDim2.fromOffset(0, 44)
+separator.Size = UDim2.new(1, 0, 0, 1)
+separator.BackgroundColor3 = THEME.stroke
+separator.BackgroundTransparency = 0.4
+separator.BorderSizePixel = 0
+separator.Parent = root
+
+local sidebar = Instance.new("Frame")
+sidebar.Position = UDim2.fromOffset(12, 56)
+sidebar.Size = UDim2.new(0, 140, 1, -96)
+sidebar.BackgroundTransparency = 1
+sidebar.Parent = root
+
+local sidebarLayout = Instance.new("UIListLayout")
+sidebarLayout.Padding = UDim.new(0, 6)
+sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sidebarLayout.Parent = sidebar
+
+local content = Instance.new("Frame")
+content.Position = UDim2.fromOffset(164, 56)
+content.Size = UDim2.new(1, -176, 1, -96)
+content.BackgroundTransparency = 1
+content.Parent = root
+
+local hint = Instance.new("TextLabel")
+hint.AnchorPoint = Vector2.new(0, 1)
+hint.Position = UDim2.new(0, 14, 1, -10)
+hint.Size = UDim2.new(1, -28, 0, 16)
+hint.BackgroundTransparency = 1
+hint.Font = Enum.Font.Gotham
+hint.TextSize = 11
+hint.TextXAlignment = Enum.TextXAlignment.Left
+hint.TextColor3 = THEME.muted
+hint.Text = isMobile and "Кнопка «МЕНЮ» — открыть / закрыть"
+	or "Left Ctrl — открыть / закрыть"
+hint.Parent = root
+
+local tabs = {}
+local pages = {}
+local activeTab
+
+local function selectTab(name)
+	if activeTab == name then
+		return
+	end
+	activeTab = name
+	for tabName, button in pairs(tabs) do
+		local selected = tabName == name
+		TweenService:Create(button, tweenFast, {
+			BackgroundColor3 = selected and THEME.accent or THEME.surface,
+			TextColor3 = selected and Color3.fromRGB(255, 255, 255) or THEME.muted,
+		}):Play()
+	end
+	for pageName, page in pairs(pages) do
+		page.Visible = pageName == name
+	end
+end
+
+local function refreshTabs()
+	for tabName, button in pairs(tabs) do
+		local selected = tabName == activeTab
+		button.BackgroundColor3 = selected and THEME.accent or THEME.surface
+		button.TextColor3 = selected and Color3.fromRGB(255, 255, 255) or THEME.muted
+	end
+end
+
+local function setAccent(color)
+	THEME.accent = color
+	for _, listener in ipairs(accentListeners) do
+		listener()
+	end
+	refreshTabs()
+end
+
+local function createTab(name)
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(1, 0, 0, 36)
+	button.BackgroundColor3 = THEME.surface
+	button.AutoButtonColor = false
+	button.Font = Enum.Font.GothamMedium
+	button.TextSize = 14
+	button.TextXAlignment = Enum.TextXAlignment.Left
+	button.TextColor3 = THEME.muted
+	button.Text = name
+	button.Parent = sidebar
+	Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 14)
+	padding.Parent = button
+
+	local page = Instance.new("ScrollingFrame")
+	page.Name = name
+	page.Size = UDim2.fromScale(1, 1)
+	page.BackgroundTransparency = 1
+	page.BorderSizePixel = 0
+	page.ScrollBarThickness = 4
+	page.ScrollBarImageColor3 = THEME.stroke
+	page.ScrollBarImageTransparency = 0.3
+	page.ScrollingDirection = Enum.ScrollingDirection.Y
+	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	page.CanvasSize = UDim2.new(0, 0, 0, 0)
+	page.Visible = false
+	page.Parent = content
+
+	local pagePadding = Instance.new("UIPadding")
+	pagePadding.PaddingRight = UDim.new(0, 8)
+	pagePadding.Parent = page
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 8)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = page
+
+	button.Activated:Connect(function()
+		selectTab(name)
+	end)
+
+	tabs[name] = button
+	pages[name] = page
+	return page
+end
+
+local function createToggle(page, text, default, callback)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 44)
+	row.BackgroundColor3 = THEME.surface
+	row.BorderSizePixel = 0
+	row.Parent = page
+	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+
+	local label = Instance.new("TextLabel")
+	label.Position = UDim2.fromOffset(14, 0)
+	label.Size = UDim2.new(1, -80, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamMedium
+	label.TextSize = 14
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextColor3 = THEME.text
+	label.Text = text
+	label.Parent = row
+
+	local track = Instance.new("Frame")
+	track.AnchorPoint = Vector2.new(1, 0.5)
+	track.Position = UDim2.new(1, -14, 0.5, 0)
+	track.Size = UDim2.fromOffset(40, 22)
+	track.BackgroundColor3 = THEME.surfaceSoft
+	track.BorderSizePixel = 0
+	track.Parent = row
+	Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+	local knob = Instance.new("Frame")
+	knob.AnchorPoint = Vector2.new(0, 0.5)
+	knob.Position = UDim2.new(0, 3, 0.5, 0)
+	knob.Size = UDim2.fromOffset(16, 16)
+	knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	knob.BorderSizePixel = 0
+	knob.ZIndex = 2
+	knob.Parent = track
+	Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+	local state = default
+
+	local function render()
+		TweenService:Create(track, tweenFast, {
+			BackgroundColor3 = state and THEME.accent or THEME.surfaceSoft,
+		}):Play()
+		TweenService:Create(knob, tweenFast, {
+			Position = UDim2.new(0, state and 21 or 3, 0.5, 0),
+			BackgroundColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(220, 222, 230),
+		}):Play()
+	end
+
+	local button = Instance.new("TextButton")
+	button.Text = ""
+	button.BackgroundTransparency = 1
+	button.Size = UDim2.fromScale(1, 1)
+	button.ZIndex = 3
+	button.Parent = row
+	button.Activated:Connect(function()
+		state = not state
+		render()
+		callback(state)
+	end)
+
+	table.insert(accentListeners, render)
+
+	render()
+	return row
+end
+
+local function createSlider(page, text, min, max, default, callback)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 60)
+	row.BackgroundColor3 = THEME.surface
+	row.BorderSizePixel = 0
+	row.Parent = page
+	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+
+	local label = Instance.new("TextLabel")
+	label.Position = UDim2.fromOffset(14, 10)
+	label.Size = UDim2.new(1, -80, 0, 16)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamMedium
+	label.TextSize = 13
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextColor3 = THEME.text
+	label.Text = text
+	label.Parent = row
+
+	local valueLabel = Instance.new("TextLabel")
+	valueLabel.AnchorPoint = Vector2.new(1, 0)
+	valueLabel.Position = UDim2.new(1, -14, 0, 10)
+	valueLabel.Size = UDim2.fromOffset(64, 16)
+	valueLabel.BackgroundTransparency = 1
+	valueLabel.Font = Enum.Font.GothamBold
+	valueLabel.TextSize = 12
+	valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+	valueLabel.TextColor3 = THEME.accent
+	valueLabel.Parent = row
+
+	local bar = Instance.new("Frame")
+	bar.Position = UDim2.new(0, 14, 0, 40)
+	bar.Size = UDim2.new(1, -28, 0, 6)
+	bar.BackgroundColor3 = THEME.surfaceSoft
+	bar.BorderSizePixel = 0
+	bar.Parent = row
+	Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.BackgroundColor3 = THEME.accent
+	fill.BorderSizePixel = 0
+	fill.Parent = bar
+	Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+	local knob = Instance.new("Frame")
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Position = UDim2.new(1, 0, 0.5, 0)
+	knob.Size = UDim2.fromOffset(14, 14)
+	knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	knob.BorderSizePixel = 0
+	knob.ZIndex = 2
+	knob.Parent = fill
+	Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+	local hitbox = Instance.new("TextButton")
+	hitbox.Position = UDim2.new(0, 14, 0, 32)
+	hitbox.Size = UDim2.new(1, -28, 0, 22)
+	hitbox.BackgroundTransparency = 1
+	hitbox.Text = ""
+	hitbox.ZIndex = 3
+	hitbox.Parent = row
+
+	local value = math.clamp(default, min, max)
+
+	local function format(number)
+		if max - min >= 10 then
+			return string.format("%d", math.floor(number + 0.5))
+		end
+		return string.format("%.1f", number)
+	end
+
+	local function update(newValue, notify)
+		value = math.clamp(newValue, min, max)
+		local alpha = (value - min) / (max - min)
+		fill.Size = UDim2.fromScale(alpha, 1)
+		valueLabel.Text = format(value)
+		if notify then
+			callback(value)
+		end
+	end
+
+	local function setFromX(x)
+		local alpha = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+		update(min + (max - min) * alpha, true)
+	end
+
+	local dragging = false
+	hitbox.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			setFromX(input.Position.X)
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging
+			and (input.UserInputType == Enum.UserInputType.MouseMovement
+				or input.UserInputType == Enum.UserInputType.Touch) then
+			setFromX(input.Position.X)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	table.insert(accentListeners, function()
+		fill.BackgroundColor3 = THEME.accent
+		valueLabel.TextColor3 = THEME.accent
+	end)
+
+	update(value, false)
+	return row
+end
+
+local function createToggleButton(page, text, default, callback)
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(1, 0, 0, 44)
+	button.BackgroundColor3 = THEME.surface
+	button.AutoButtonColor = false
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 14
+	button.Text = text
+	button.Parent = page
+	Instance.new("UICorner", button).CornerRadius = UDim.new(0, 8)
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = THEME.accent
+	stroke.Thickness = 1
+	stroke.Transparency = 0.6
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = button
+
+	local state = default
+
+	local function render()
+		button.TextColor3 = state and Color3.fromRGB(255, 255, 255) or THEME.accent
+		stroke.Transparency = state and 1 or 0.6
+		TweenService:Create(button, tweenFast, {
+			BackgroundColor3 = state and THEME.accent or THEME.surface,
+		}):Play()
+	end
+
+	button.MouseEnter:Connect(function()
+		if not state then
+			TweenService:Create(button, tweenFast, { BackgroundColor3 = THEME.surfaceSoft }):Play()
+		end
+	end)
+	button.MouseLeave:Connect(function()
+		if not state then
+			TweenService:Create(button, tweenFast, { BackgroundColor3 = THEME.surface }):Play()
+		end
+	end)
+	button.Activated:Connect(function()
+		state = not state
+		render()
+		callback(state)
+	end)
+
+	table.insert(accentListeners, function()
+		stroke.Color = THEME.accent
+		render()
+	end)
+
+	render()
+	return button
+end
+
+local draggingWindow = false
+local dragStart
+local startPosition
+
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingWindow = true
+		dragStart = input.Position
+		startPosition = root.Position
+	end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if draggingWindow
+		and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		root.Position = UDim2.new(
+			startPosition.X.Scale,
+			startPosition.X.Offset + delta.X,
+			startPosition.Y.Scale,
+			startPosition.Y.Offset + delta.Y
+		)
+		shadow.Position = root.Position
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingWindow = false
+	end
+end)
+
+local isOpen = true
+local mobileButton
+
+local function setOpen(state)
+	if isOpen == state then
+		return
+	end
+	isOpen = state
+	if state then
+		root.Visible = true
+		shadow.Visible = true
+		if mobileButton then
+			mobileButton.Visible = false
+		end
+		root.Size = UDim2.fromOffset(menuWidth - 28, menuHeight - 18)
+		shadow.Size = UDim2.fromOffset(menuWidth + 20, menuHeight + 22)
+		shadow.BackgroundTransparency = 1
+		TweenService:Create(root, tweenMed, {
+			Size = UDim2.fromOffset(menuWidth, menuHeight),
+		}):Play()
+		TweenService:Create(shadow, tweenMed, { BackgroundTransparency = 0.65 }):Play()
+	else
+		local tween = TweenService:Create(root, tweenMed, {
+			Size = UDim2.fromOffset(menuWidth - 28, menuHeight - 18),
+		})
+		tween:Play()
+		TweenService:Create(shadow, tweenMed, { BackgroundTransparency = 1 }):Play()
+		tween.Completed:Connect(function()
+			if not isOpen then
+				root.Visible = false
+				shadow.Visible = false
+				if mobileButton then
+					mobileButton.Visible = isMobile
+				end
+			end
+		end)
+	end
+end
+
+closeButton.Activated:Connect(function()
+	setOpen(false)
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.KeyCode == Enum.KeyCode.LeftControl then
+		-- Работает даже если игра сама обрабатывает Ctrl (например, присесть),
+		-- но не мешает вводу текста.
+		if not UserInputService:GetFocusedTextBox() then
+			setOpen(not isOpen)
+		end
+		return
+	end
+	if gameProcessed then
+		return
+	end
+end)
+
+-- Кнопка для телефона: открывает меню, когда оно закрыто.
+if isMobile then
+	-- На телефоне меню стартует закрытым, чтобы не закрывать весь экран.
+	isOpen = false
+	root.Visible = false
+	shadow.Visible = false
+
+	mobileButton = Instance.new("TextButton")
+	mobileButton.Name = "MenuButton"
+	mobileButton.AnchorPoint = Vector2.new(0, 0)
+	mobileButton.Position = UDim2.new(0, 14, 0, 60)
+	mobileButton.Size = UDim2.fromOffset(72, 44)
+	mobileButton.BackgroundColor3 = THEME.accent
+	mobileButton.BackgroundTransparency = 0.1
+	mobileButton.AutoButtonColor = false
+	mobileButton.Font = Enum.Font.GothamBold
+	mobileButton.Text = "МЕНЮ"
+	mobileButton.TextSize = 13
+	mobileButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	mobileButton.Visible = true
+	mobileButton.Parent = gui
+	Instance.new("UICorner", mobileButton).CornerRadius = UDim.new(0, 12)
+	Instance.new("UIStroke", mobileButton).Color = THEME.stroke
+	mobileButton.Activated:Connect(function()
+		setOpen(true)
+	end)
+end
+
+local mainPage = createTab("Главная")
+
+local FARM_SPEED = 20
+local FARM_MIN_SPEED = 8
+local FARM_MAX_SPEED = 40
+local FARM_REACH = 0.5
+local FARM_RETOUCH = 1.5
+local FARM_MAX_RANGE = 400
+local FARM_MAX_Y_DIFF = 25
+local FARM_SCAN_CHUNK = 500
+local FARM_SWEEP_INTERVAL = 20
+local FARM_DRIFT = 6
+local FARM_TOUCH_CHECK = 2
+local FARM_FAIL_LIMIT = 3
+local FARM_RESET_COOLDOWN = 10
+local FARM_COLLECTED_TTL = 120
+local FARM_BAG_FULL = 50
+local FARM_BAG_MIN = 10
+local FARM_BAG_MAX = 500
+local FARM_LIE_ANGLE = 90
+local FARM_ROLE_WORDS = {
+	text = {
+		murderer = { "murderer", "murder", "убийца", "убийц", "маньяк" },
+		sheriff = { "sheriff", "шериф" },
+		innocent = { "innocent", "невин", "мирный" },
+	},
+}
+
+local FARM_WORDS = {
+	"coin",
+	"candy",
+	"candies",
+	"sweet",
+	"moneda",
+	"монет",
+	"конфет",
+}
+
+local FARM_IGNORED = { "gui", "display", "shop", "label", "button", "icon", "text", "sign" }
+
+local farmRunning = false
+local farmStepConnection
+local farmAddedConnection
+local farmRemovedConnection
+local farmCharacterConnection
+local farmAlign
+local farmOrientation
+local farmAttachment
+local farmCollisions = {}
+local farmCharacterParts = {}
+local farmRecords = {}
+local farmScanner
+local farmNextSweepAt = 0
+local farmTarget
+local farmNextSelectAt = 0
+local farmLastCharacter
+local farmAutoReset = true
+local farmRole = "unknown"
+local farmRoleAt = 0
+local farmPendingTouches = {}
+local farmCollected = setmetatable({}, { __mode = "k" })
+local farmFailParts = setmetatable({}, { __mode = "k" })
+local farmFailStreak = 0
+local farmResetAt = 0
+local farmResetCount = 0
+local farmFullNote = ""
+local farmResetPendingAt = 0
+local farmResetPendingCharacter
+local farmResetSawDead = false
+local farmResetDeadAt = 0
+local farmHudAt = 0
+local farmHudHits = 0
+local farmHudClear = 0
+local farmHudCacheAt = -math.huge
+local farmHudCache = {}
+local farmFullLatch = false
+local farmStatsLast
+local farmStatsGrowing = {}
+local farmCapStuck = 0
+local farmWatchAt = 0
+local farmWatchLast
+local farmStatGainAt = {}
+
+-- string.lower в Roblox не трогает кириллицу, поэтому опускаем регистр сами.
+local function farmLower(text)
+	local lowered = string.lower(text)
+	lowered = string.gsub(lowered, "\208([\144-\159])", function(second)
+		return "\208" .. string.char(string.byte(second) + 32)
+	end)
+	lowered = string.gsub(lowered, "\208([\160-\175])", function(second)
+		return "\209" .. string.char(string.byte(second) - 32)
+	end)
+	lowered = string.gsub(lowered, "\208\129", "\209\145")
+	return lowered
+end
+
+local function farmMatches(part)
+	if not part:IsA("BasePart") then
+		return false
+	end
+
+	local name = farmLower(part.Name)
+	local parent = part.Parent
+	local parentName = parent and farmLower(parent.Name) or ""
+
+	local matched = false
+	for index = 1, #FARM_WORDS do
+		local word = FARM_WORDS[index]
+		if string.find(name, word, 1, true) or string.find(parentName, word, 1, true) then
+			matched = true
+			break
+		end
+	end
+	if not matched then
+		return false
+	end
+
+	for index = 1, #FARM_IGNORED do
+		local word = FARM_IGNORED[index]
+		if string.find(name, word, 1, true) or string.find(parentName, word, 1, true) then
+			return false
+		end
+	end
+
+	local character = player.Character
+	if character and part:IsDescendantOf(character) then
+		return false
+	end
+
+	local ancestor = part:FindFirstAncestorOfClass("Model")
+	if ancestor and ancestor:FindFirstChildOfClass("Humanoid") then
+		return false
+	end
+
+	if math.max(part.Size.X, part.Size.Y, part.Size.Z) > 50 then
+		return false
+	end
+
+	return true
+end
+
+local function farmAddRecord(part)
+	local now = os.clock()
+	local collectedUntil = farmCollected[part]
+	if collectedUntil then
+		if collectedUntil > now then
+			return nil
+		end
+		farmCollected[part] = nil
+	end
+
+	local record = farmRecords[part]
+	if record then
+		record.pos = part.Position
+		return record
+	end
+
+	local size = part.Size
+	record = {
+		part = part,
+		pos = part.Position,
+		radius = math.min(size.X, size.Y, size.Z) * 0.5,
+		readyAt = 0,
+		attempts = 0,
+		best = math.huge,
+		progressAt = 0,
+	}
+	farmRecords[part] = record
+	return record
+end
+
+local function farmDropRecord(part)
+	if not farmRecords[part] then
+		return
+	end
+	farmRecords[part] = nil
+	if farmTarget and farmTarget.part == part then
+		farmTarget = nil
+	end
+end
+
+local function farmNewScanner()
+	local stack = { workspace }
+	local processed = 0
+
+	return coroutine.create(function()
+		while #stack > 0 do
+			local node = table.remove(stack)
+			local children = node:GetChildren()
+			if node ~= workspace.CurrentCamera and node ~= workspace.Terrain then
+				local record = farmRecords[node]
+				if record then
+					record.pos = node.Position
+				elseif farmMatches(node) then
+					farmAddRecord(node)
+				end
+				for index = #children, 1, -1 do
+					stack[#stack + 1] = children[index]
+				end
+			end
+			processed = processed + 1
+			if processed % FARM_SCAN_CHUNK == 0 then
+				coroutine.yield()
+			end
+		end
+	end)
+end
+
+local function farmFindTarget(position)
+	local now = os.clock()
+	local best = {}
+
+	for part, record in pairs(farmRecords) do
+		if not part.Parent then
+			farmRecords[part] = nil
+		elseif record.readyAt <= now then
+			local delta = record.pos - position
+			local distance = delta.Magnitude
+			-- Не берём цели сильно выше/ниже персонажа: именно из-за них
+			-- он улетал в небо или проваливался далеко от карты.
+			if distance <= FARM_MAX_RANGE
+				and math.abs(delta.Y) <= FARM_MAX_Y_DIFF then
+				local count = #best
+				if count < 4 or distance < best[count].distance then
+					best[count + 1] = { record = record, distance = distance }
+					local index = count + 1
+					while index > 1 and best[index].distance < best[index - 1].distance do
+						best[index], best[index - 1] = best[index - 1], best[index]
+						index = index - 1
+					end
+					if #best > 4 then
+						best[#best] = nil
+					end
+				end
+			end
+		end
+	end
+
+	for _, item in ipairs(best) do
+		local part = item.record.part
+		if part.Parent and part.Transparency < 0.99 and part.CanTouch then
+			item.record.pos = part.Position
+			return item.record
+		end
+		farmRecords[part] = nil
+	end
+
+	return nil
+end
+
+local function farmTrackCharacter(character)
+	if farmCharacterConnection then
+		farmCharacterConnection:Disconnect()
+		farmCharacterConnection = nil
+	end
+
+	for part in pairs(farmCollisions) do
+		if not part.Parent then
+			farmCollisions[part] = nil
+		end
+	end
+
+	farmCharacterParts = {}
+
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			farmCharacterParts[part] = true
+			if farmCollisions[part] == nil then
+				farmCollisions[part] = part.CanCollide
+			end
+		end
+	end
+
+	farmCharacterConnection = character.DescendantAdded:Connect(function(part)
+		if part:IsA("BasePart") then
+			farmCharacterParts[part] = true
+			if farmCollisions[part] == nil then
+				farmCollisions[part] = part.CanCollide
+			end
+		end
+	end)
+end
+
+local function farmClearAlign()
+	if farmAlign then
+		farmAlign:Destroy()
+		farmAlign = nil
+	end
+	if farmOrientation then
+		farmOrientation:Destroy()
+		farmOrientation = nil
+	end
+	if farmAttachment then
+		farmAttachment:Destroy()
+		farmAttachment = nil
+	end
+end
+
+local function farmRestoreCollisions()
+	for part, canCollide in pairs(farmCollisions) do
+		if part.Parent then
+			part.CanCollide = canCollide
+		else
+			farmCollisions[part] = nil
+		end
+	end
+end
+
+local function farmEnsureAlign(hrp)
+	if farmAlign and farmAlign.Parent == hrp
+		and farmOrientation and farmOrientation.Parent == hrp then
+		return
+	end
+	farmClearAlign()
+
+	farmAttachment = Instance.new("Attachment")
+	farmAttachment.Parent = hrp
+
+	farmAlign = Instance.new("AlignPosition")
+	farmAlign.Mode = Enum.PositionAlignmentMode.OneAttachment
+	farmAlign.Attachment0 = farmAttachment
+	farmAlign.MaxForce = 1e6
+	farmAlign.Responsiveness = 200
+	farmAlign.MaxVelocity = FARM_SPEED
+	farmAlign.Position = hrp.Position
+	farmAlign.Parent = hrp
+
+	farmOrientation = Instance.new("AlignOrientation")
+	farmOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	farmOrientation.Attachment0 = farmAttachment
+	farmOrientation.MaxTorque = 1e6
+	farmOrientation.Responsiveness = 60
+	farmOrientation.CFrame = hrp.CFrame
+	farmOrientation.Parent = hrp
+end
+
+-- Поза «лежа на спине»: заваливаем персонажа назад, лицом вверх.
+local function farmLieFrame(position)
+	return CFrame.new(position) * CFrame.Angles(math.rad(FARM_LIE_ANGLE), 0, 0)
+end
+
+local function farmTouch(part, hrp)
+	if type(firetouchinterest) ~= "function" then
+		return false
+	end
+	pcall(firetouchinterest, hrp, part, 0)
+	pcall(firetouchinterest, hrp, part, 1)
+	return true
+end
+
+local function farmStatsSnapshot()
+	local snapshot = {}
+	local stats = player:FindFirstChild("leaderstats")
+	if not stats then
+		return snapshot
+	end
+	for _, child in ipairs(stats:GetChildren()) do
+		if child:IsA("ValueBase") then
+			local value = tonumber(child.Value)
+			if value then
+				snapshot[child.Name] = value
+			end
+		end
+	end
+	return snapshot
+end
+
+local function farmNoteCollection()
+	local snapshot = farmStatsSnapshot()
+	local gained = false
+	local capped = false
+	local previousSnapshot = farmStatsLast
+
+	if previousSnapshot then
+		for name, value in pairs(snapshot) do
+			local previous = previousSnapshot[name]
+			if previous then
+				if value > previous then
+					gained = true
+					farmStatsGrowing[name] = true
+				elseif value == previous
+					and value == FARM_BAG_FULL
+					and farmStatsGrowing[name] then
+					capped = true
+				end
+			end
+		end
+	end
+	farmStatsLast = snapshot
+
+	if gained then
+		farmCapStuck = 0
+		farmFullLatch = false
+	elseif capped then
+		farmCapStuck = farmCapStuck + 1
+	else
+		farmCapStuck = 0
+	end
+
+	return farmCapStuck >= 2
+end
+
+local farmHudCounters = setmetatable({}, { __mode = "k" })
+
+local farmFullWords = {
+	"полон", -- полон / переполнен
+	"полн", -- полный / заполнен
+	"нет места",
+	"full",
+	"no space",
+}
+
+local farmBagWords = {
+	"меш",
+	"сумк",
+	"конфет",
+	"койн",
+	"инвентар",
+	"candy",
+	"candies",
+	"coin",
+	"bag",
+	"inventory",
+}
+
+local function farmTextHasAny(text, words)
+	if type(text) ~= "string" or #text == 0 or #text > 64 then
+		return false
+	end
+	local lowered = farmLower(text)
+	for _, word in ipairs(words) do
+		if string.find(lowered, word, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+local function farmTextHasBag(text)
+	return farmTextHasAny(text, farmBagWords)
+end
+
+local function farmTextHasFull(text)
+	if type(text) ~= "string" or #text == 0 or #text > 64 then
+		return false
+	end
+
+	local lowered = farmLower(text)
+	-- Явные признаки полного мешка.
+	if string.find(lowered, "полон", 1, true)
+		or string.find(lowered, "переполн", 1, true)
+		or string.find(lowered, "нет места", 1, true)
+		or string.find(lowered, "no space", 1, true) then
+		return true
+	end
+
+	-- «полный»/«full» засчитываем только рядом со словом про мешок:
+	-- иначе любая надпись вида «Full» в интерфейсе даёт ложный сброс.
+	if farmTextHasBag(text)
+		and (string.find(lowered, "полн", 1, true)
+			or string.find(lowered, "full", 1, true)) then
+		return true
+	end
+
+	return false
+end
+
+-- Возвращает true, если число в надписи доросло до «полного мешка»
+-- и держится на этом значении (просто проходящее число, например таймер, не считается).
+local function farmHudTrack(label, number)
+	local value = tonumber(number)
+	if not value then
+		return nil, false, false
+	end
+
+	local state = farmHudCounters[label]
+	if not state then
+		state = { value = value, grew = false }
+		farmHudCounters[label] = state
+		return value, false, false
+	end
+
+	local previous = state.value
+	if value < previous then
+		state.value = value
+		state.grew = false
+	elseif value > previous then
+		state.value = value
+		state.grew = true
+	end
+
+	return value, state.grew, value == previous
+end
+
+local function farmHudCounter(label, number)
+	local value, grew, same = farmHudTrack(label, number)
+	return value ~= nil and value == FARM_BAG_FULL and grew and same
+end
+
+local function farmFraction(text)
+	local lowered = farmLower(text)
+	local current, maximum = string.match(lowered, "(%d+)%s*/%s*(%d+)")
+	if current then
+		return tonumber(current), tonumber(maximum), true
+	end
+	current, maximum = string.match(lowered, "(%d+)%s*из%s*(%d+)")
+	if not current then
+		current, maximum = string.match(lowered, "(%d+)%s+of%s+(%d+)")
+	end
+	return tonumber(current), tonumber(maximum), false
+end
+
+local function farmHudCheckText(label, text)
+	if type(text) ~= "string" or #text == 0 or #text > 64 then
+		return false
+	end
+
+	-- «Мешок полон», «Bag Full», «нет места» и т.п.
+	if farmTextHasFull(text) then
+		return true
+	end
+
+	-- «50/50», «47 / 50», «50 из 50»
+	local cur, max, slash = farmFraction(text)
+	if cur and max and max > 0 then
+		local bagFraction = (slash and max == FARM_BAG_FULL) or farmTextHasBag(text)
+		if bagFraction then
+			local value, grew, same = farmHudTrack(label, cur)
+			if value and value >= max and grew and same then
+				return true
+			end
+		end
+	end
+
+	local trimmed = string.match(text, "^%s*(.-)%s*$") or text
+
+	-- число целиком: «50»
+	if tonumber(trimmed) then
+		return farmHudCounter(label, trimmed)
+	end
+
+	-- «🍬 50», «(50)» — одно число без букв
+	local only = string.match(trimmed, "^[^%d]*(%d+)[^%d]*$")
+	if only
+		and not string.find(trimmed, "%%")
+		and not string.find(trimmed, "%a")
+		and not string.find(trimmed, "[\208\209]") then
+		return farmHudCounter(label, only)
+	end
+
+	-- «Конфеты: 50», «Coins 50»
+	if farmTextHasBag(trimmed) then
+		local number = string.match(trimmed, "(%d+)")
+		if number then
+			return farmHudCounter(label, number)
+		end
+	end
+
+	return false
+end
+
+local function farmHudLabelVisible(label)
+	local node = label
+	while node and node ~= playerGui do
+		if node:IsA("GuiObject") and not node.Visible then
+			return false
+		end
+		node = node.Parent
+	end
+	return true
+end
+
+local function farmHudCollect(now)
+	-- Кэш короткий: сообщение «мешок полон» может появиться и исчезнуть
+	-- за пару секунд, нельзя сканировать HUD раз в 2 секунды.
+	if now - farmHudCacheAt < 0.25 then
+		return farmHudCache
+	end
+	farmHudCacheAt = now
+	local list = {}
+	local function scan(node)
+		for _, child in ipairs(node:GetChildren()) do
+			if child ~= gui then
+				if child:IsA("GuiObject") then
+					if child.Visible then
+						if child:IsA("TextLabel") or child:IsA("TextButton") then
+							list[#list + 1] = child
+						end
+						scan(child)
+					end
+				else
+					scan(child)
+				end
+			end
+		end
+	end
+	scan(playerGui)
+	farmHudCache = list
+	return list
+end
+
+local function farmHudFull(now)
+	if now - farmHudAt < 0.5 then
+		return false
+	end
+	farmHudAt = now
+
+	local hit = false
+	local strongHit = false
+	for _, label in ipairs(farmHudCollect(now)) do
+		if label.Parent
+			and label.Visible
+			and label.TextTransparency < 0.9
+			and farmHudLabelVisible(label)
+			and farmHudCheckText(label, label.Text) then
+			hit = true
+			-- Явное «мешок полон / bag full / нет места» может висеть
+			-- меньше секунды. Такое сообщение засчитываем сразу,
+			-- иначе авторесет вообще не срабатывает.
+			if farmTextHasFull(label.Text) then
+				strongHit = true
+			end
+		end
+	end
+
+	if hit then
+		farmHudHits = farmHudHits + 1
+		farmHudClear = 0
+	else
+		farmHudHits = 0
+		farmHudClear = farmHudClear + 1
+		if farmHudClear >= 2 then
+			farmFullLatch = false
+		end
+	end
+
+	if (strongHit or farmHudHits >= 2) and not farmFullLatch then
+		farmFullLatch = true
+		farmFullNote = "мешок полон: " .. tostring(FARM_BAG_FULL) .. " (HUD)"
+		return true
+	end
+	return false
+end
+
+-- Определение роли только по явным данным игры (атрибуты/StringValue).
+-- Инструменты и HUD не используем: они давали ложное «убийца»
+-- и блокировали авторесет.
+local function farmRoleFromText(text)
+	if type(text) ~= "string" or #text == 0 or #text > 64 then
+		return nil
+	end
+	local lowered = farmLower(text)
+	for _, word in ipairs(FARM_ROLE_WORDS.text.murderer) do
+		if string.find(lowered, word, 1, true) then
+			return "murderer"
+		end
+	end
+	for _, word in ipairs(FARM_ROLE_WORDS.text.sheriff) do
+		if string.find(lowered, word, 1, true) then
+			return "sheriff"
+		end
+	end
+	for _, word in ipairs(FARM_ROLE_WORDS.text.innocent) do
+		if string.find(lowered, word, 1, true) then
+			return "innocent"
+		end
+	end
+	return nil
+end
+
+local function farmUpdateRole(now)
+	if now - farmRoleAt < 0.5 then
+		return farmRole
+	end
+	farmRoleAt = now
+
+	local previousRole = farmRole
+	local character = player.Character
+
+	local attrRole
+	for _, node in ipairs({ player, character }) do
+		if node then
+			local value = node:GetAttribute("Role")
+				or node:GetAttribute("role")
+				or node:GetAttribute("RoleName")
+			if type(value) == "string" then
+				attrRole = farmRoleFromText(value)
+				if attrRole then
+					break
+				end
+			end
+		end
+	end
+
+	if not attrRole then
+		for _, node in ipairs({ player, character }) do
+			if node then
+				for _, child in ipairs(node:GetChildren()) do
+					if child:IsA("StringValue")
+						and (child.Name == "Role" or child.Name == "RoleName") then
+						attrRole = farmRoleFromText(child.Value)
+						if attrRole then
+							break
+						end
+					end
+				end
+			end
+			if attrRole then
+				break
+			end
+		end
+	end
+
+	if attrRole then
+		farmRole = attrRole
+	else
+		-- Игра не сообщает роль — считаем неизвестной, ресет разрешён.
+		farmRole = "unknown"
+	end
+
+	if farmRole ~= previousRole then
+		-- Смена роли: даём ресету шанс сработать заново.
+		farmFullLatch = false
+	end
+
+	return farmRole
+end
+
+local function farmKillCharacter()
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not character or not humanoid then
+		return false
+	end
+
+	-- Уже мёртв — значит, респавн и так запущен. Раньше это считалось
+	-- ошибкой, из-за чего авторесет «залипал».
+	if humanoid.Health <= 0 then
+		return true
+	end
+
+	local function dead()
+		return humanoid.Health <= 0
+	end
+
+	pcall(function()
+		humanoid.Health = 0
+	end)
+	if dead() then
+		return true
+	end
+
+	pcall(function()
+		humanoid:TakeDamage(humanoid.MaxHealth * 10 + 1e6)
+	end)
+	if dead() then
+		return true
+	end
+
+	pcall(function()
+		humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+	end)
+	if dead() then
+		return true
+	end
+
+	pcall(function()
+		character:BreakJoints()
+	end)
+	if dead() then
+		return true
+	end
+
+	return false
+end
+
+
+local function farmRequestReset(now, note)
+	if now < farmResetAt then
+		return false
+	end
+
+	-- Убийце ресет не нужен (и вреден): он теряет роль/раунд.
+	-- Проверяем роль принудительно, без 0.5-секундного кэша,
+	-- чтобы не ресетнуть убийцу из-за устаревшего «unknown».
+	farmRoleAt = 0
+	farmUpdateRole(now)
+	if farmRole == "murderer" then
+		farmFullNote = "ты убийца — ресет не нужен"
+		return false
+	end
+
+	local character = player.Character
+	farmFailStreak = 0
+	farmFailParts = setmetatable({}, { __mode = "k" })
+	farmPendingTouches = {}
+	farmCapStuck = 0
+	farmHudHits = 0
+	farmHudClear = 0
+	farmHudCacheAt = -math.huge
+	farmHudCache = {}
+	farmHudCounters = setmetatable({}, { __mode = "k" })
+	farmStatsGrowing = {}
+	farmStatsLast = farmStatsSnapshot()
+	farmWatchAt = 0
+	farmWatchLast = nil
+	farmStatGainAt = {}
+	farmTarget = nil
+	farmNextSelectAt = 0
+
+	for _, record in pairs(farmRecords) do
+		record.readyAt = 0
+		record.attempts = 0
+		record.best = math.huge
+	end
+
+	if not farmKillCharacter() then
+		-- Убить не вышло. Раньше тут всё равно тратился 10-секундный
+		-- кулдаун и взводился latch — авторесет больше не пробовал.
+		farmFullLatch = false
+		farmResetAt = now + 1
+		farmFullNote = "не смог зареспавнить"
+		return false
+	end
+
+	farmResetAt = now + FARM_RESET_COOLDOWN
+	farmFullLatch = true
+	farmFullNote = note or ""
+
+	-- Счётчик увеличиваем только после того, как убедимся, что персонаж
+	-- реально сменился/возродился (проверка в farmUpdate).
+	farmResetPendingAt = now
+	farmResetPendingCharacter = character
+	farmResetSawDead = false
+	farmResetDeadAt = 0
+	return true
+end
+
+local function farmResumeScanner(now)
+	if farmScanner then
+		if coroutine.status(farmScanner) == "suspended" then
+			local ok = coroutine.resume(farmScanner)
+			if not ok then
+				farmScanner = nil
+			end
+			return
+		end
+		farmScanner = nil
+	end
+
+	if now >= farmNextSweepAt then
+		farmScanner = farmNewScanner()
+		farmNextSweepAt = now + FARM_SWEEP_INTERVAL
+	end
+end
+
+
+local function farmUpdate()
+	if not farmRunning then
+		return
+	end
+
+	local now = os.clock()
+	farmResumeScanner(now)
+	farmUpdateRole(now)
+
+	-- Проверка, что авторесет реально сработал. Клиентский kill иногда
+	-- не принимается сервером — тогда персонаж не меняется, и раньше
+	-- авторесет молча считался успешным и больше не пытался.
+	if farmResetPendingAt > 0 then
+		local current = player.Character
+		local currentHumanoid = current and current:FindFirstChildOfClass("Humanoid")
+		if current ~= farmResetPendingCharacter
+			or not currentHumanoid
+			or currentHumanoid.Health <= 0 then
+			if not farmResetSawDead then
+				farmResetSawDead = true
+				farmResetDeadAt = now
+			end
+		end
+
+		if current ~= farmResetPendingCharacter then
+			-- персонаж заменился — респавн точно прошёл
+			farmResetPendingAt = 0
+			farmResetSawDead = false
+			farmResetCount = farmResetCount + 1
+		elseif farmResetSawDead and currentHumanoid and currentHumanoid.Health > 0 then
+			-- тот же персонаж ожил (респавн на месте). Требуем, чтобы он
+			-- пробыл мёртвым хотя бы полсекунды — иначе это просто
+			-- сервер вернул здоровье, и kill не сработал.
+			if now - farmResetDeadAt >= 0.5 then
+				farmResetPendingAt = 0
+				farmResetSawDead = false
+				farmResetCount = farmResetCount + 1
+			else
+				farmResetPendingAt = 0
+				farmResetSawDead = false
+				farmFullLatch = false
+				farmResetAt = now + 1
+				farmFullNote = "ресет не сработал"
+			end
+		elseif now - farmResetPendingAt > 8 then
+			-- персонаж так и не умер — kill не сработал, пробуем позже
+			farmResetPendingAt = 0
+			farmResetSawDead = false
+			farmFullLatch = false
+			farmResetAt = now + 1
+			farmFullNote = "ресет не сработал"
+		end
+	end
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+	if not character or not humanoid or not hrp or humanoid.Health <= 0 then
+		if farmLastCharacter then
+			farmLastCharacter = nil
+			farmTarget = nil
+			farmClearAlign()
+			farmRestoreCollisions()
+		end
+		return
+	end
+
+	if farmLastCharacter ~= character then
+		farmLastCharacter = character
+		farmTarget = nil
+		farmNextSelectAt = 0
+		farmClearAlign()
+		farmTrackCharacter(character)
+	end
+
+	-- Резервное определение полного мешка. Если игра не пишет
+	-- «мешок полон» текстом, смотрим на счётчик: он дошёл до лимита
+	-- и не растёт 8 секунд — значит, мешок полон.
+	if now - farmWatchAt >= 1 then
+		farmWatchAt = now
+		local snapshot = farmStatsSnapshot()
+		for name, value in pairs(snapshot) do
+			local previous = farmWatchLast and farmWatchLast[name]
+			if previous and value > previous then
+				farmStatGainAt[name] = now
+			elseif previous
+				and value == previous
+				and value == FARM_BAG_FULL
+				and farmStatGainAt[name]
+				and now - farmStatGainAt[name] >= 8
+				and farmAutoReset
+				and not farmFullLatch then
+				farmWatchLast = snapshot
+				farmRequestReset(now, "счётчик " .. name .. " замер на " .. tostring(value))
+				return
+			end
+		end
+		farmWatchLast = snapshot
+	end
+
+	if farmAutoReset and farmHudFull(now) then
+		-- Роль проверит сам farmRequestReset и, если это убийца,
+		-- покажет причину в статусе.
+		farmRequestReset(now, farmFullNote ~= "" and farmFullNote or "написано «полный мешок»")
+		return
+	end
+
+	for part in pairs(farmCharacterParts) do
+		if part.Parent then
+			if part.CanCollide then
+				part.CanCollide = false
+			end
+		else
+			farmCharacterParts[part] = nil
+		end
+	end
+
+	if not humanoid.PlatformStand then
+		humanoid.PlatformStand = true
+	end
+	if humanoid.AutoRotate then
+		humanoid.AutoRotate = false
+	end
+
+	farmEnsureAlign(hrp)
+	farmAlign.MaxVelocity = FARM_SPEED
+	if farmOrientation then
+		farmOrientation.CFrame = farmLieFrame(hrp.Position)
+	end
+
+	for index = #farmPendingTouches, 1, -1 do
+		local pending = farmPendingTouches[index]
+		local part = pending.part
+		local collected = not part.Parent
+			or part.Transparency >= 0.99
+			or (part.Position - pending.pos).Magnitude > FARM_DRIFT
+		if collected then
+			table.remove(farmPendingTouches, index)
+			farmFailStreak = 0
+			farmFailParts = setmetatable({}, { __mode = "k" })
+			farmRecords[part] = nil
+			farmCollected[part] = now + FARM_COLLECTED_TTL
+			local capped = farmNoteCollection()
+			if capped and farmAutoReset and not farmFullLatch then
+				farmRequestReset(now, "счётчик замер на " .. tostring(FARM_BAG_FULL))
+				return
+			end
+			if farmTarget and farmTarget.part == part then
+				farmTarget = nil
+			end
+		elseif now - pending.at >= FARM_TOUCH_CHECK then
+			table.remove(farmPendingTouches, index)
+			if not farmFailParts[part] then
+				farmFailParts[part] = true
+				farmFailStreak = farmFailStreak + 1
+			end
+		end
+	end
+
+	if farmTarget then
+		local part = farmTarget.part
+		if not part.Parent then
+			farmRecords[part] = nil
+			farmTarget = nil
+		elseif (part.Position - farmTarget.anchor).Magnitude > FARM_DRIFT then
+			-- конфета уехала (её уже подобрали / унесли) — за ней не гонимся
+			farmTarget.pos = part.Position
+			farmTarget.readyAt = now + 10
+			farmTarget = nil
+		else
+			farmTarget.pos = part.Position
+			local distance = (farmTarget.pos - hrp.Position).Magnitude
+			if distance < farmTarget.best - 0.5 then
+				farmTarget.best = distance
+				farmTarget.progressAt = now
+			elseif now - farmTarget.progressAt > 3 then
+				farmTarget.readyAt = now + 10
+				farmTarget = nil
+			end
+		end
+	end
+
+	if not farmTarget and now >= farmNextSelectAt then
+		farmTarget = farmFindTarget(hrp.Position)
+		if farmTarget then
+			farmTarget.anchor = farmTarget.pos
+			farmTarget.best = (farmTarget.pos - hrp.Position).Magnitude
+			farmTarget.progressAt = now
+			farmNextSelectAt = now
+		else
+			farmNextSelectAt = now + 0.25
+		end
+	end
+
+	local targetPos = farmTarget and farmTarget.pos or hrp.Position
+	local distance = (targetPos - hrp.Position).Magnitude
+	local reach = FARM_REACH + (farmTarget and farmTarget.radius or 0)
+
+	if farmTarget and distance <= reach then
+		local part = farmTarget.part
+		local touchPos = part.Position
+		local fireStarted = farmTouch(part, hrp)
+		farmTarget.attempts = farmTarget.attempts + 1
+		farmTarget.readyAt = now + FARM_TOUCH_CHECK + FARM_RETOUCH * math.min(farmTarget.attempts, 4)
+		if fireStarted then
+			farmPendingTouches[#farmPendingTouches + 1] = {
+				part = part,
+				pos = touchPos,
+				at = now,
+			}
+			if #farmPendingTouches > 8 then
+				table.remove(farmPendingTouches, 1)
+			end
+		end
+		farmTarget = nil
+		farmNextSelectAt = now
+	else
+		farmAlign.MaxVelocity = FARM_SPEED
+		if math.abs(targetPos.Y - hrp.Position.Y) > FARM_MAX_Y_DIFF then
+			-- Цель резко выше или ниже: движемся только по горизонтали,
+			-- иначе персонаж улетает вверх / уходит под карту.
+			farmAlign.Position = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z)
+		else
+			farmAlign.Position = targetPos
+		end
+	end
+end
+
+local function farmStop()
+	farmRunning = false
+
+	if farmStepConnection then
+		farmStepConnection:Disconnect()
+		farmStepConnection = nil
+	end
+	if farmAddedConnection then
+		farmAddedConnection:Disconnect()
+		farmAddedConnection = nil
+	end
+	if farmRemovedConnection then
+		farmRemovedConnection:Disconnect()
+		farmRemovedConnection = nil
+	end
+	if farmCharacterConnection then
+		farmCharacterConnection:Disconnect()
+		farmCharacterConnection = nil
+	end
+
+	farmScanner = nil
+	farmTarget = nil
+	farmLastCharacter = nil
+	farmPendingTouches = {}
+	farmCollected = setmetatable({}, { __mode = "k" })
+	farmFailParts = setmetatable({}, { __mode = "k" })
+	farmFailStreak = 0
+	farmHudHits = 0
+	farmHudClear = 0
+	farmFullLatch = false
+	farmCapStuck = 0
+	farmStatsGrowing = {}
+	farmResetPendingAt = 0
+	farmResetPendingCharacter = nil
+	farmResetSawDead = false
+	farmResetDeadAt = 0
+	farmClearAlign()
+	farmRestoreCollisions()
+	farmCollisions = {}
+	farmCharacterParts = {}
+	farmRecords = {}
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.PlatformStand = false
+		humanoid.AutoRotate = true
+	end
+end
+
+local function farmStart()
+	if farmRunning then
+		farmStop()
+	end
+
+	farmRunning = true
+	farmRecords = {}
+	farmTarget = nil
+	farmPendingTouches = {}
+	farmFailParts = setmetatable({}, { __mode = "k" })
+	farmFailStreak = 0
+	farmHudHits = 0
+	farmHudClear = 0
+	farmHudCacheAt = -math.huge
+	farmHudCache = {}
+	farmFullLatch = false
+	farmCapStuck = 0
+	farmStatsGrowing = {}
+	farmStatsLast = farmStatsSnapshot()
+	farmResetAt = 0
+	farmResetPendingAt = 0
+	farmResetPendingCharacter = nil
+	farmResetSawDead = false
+	farmResetDeadAt = 0
+	farmScanner = farmNewScanner()
+	farmNextSweepAt = os.clock() + FARM_SWEEP_INTERVAL
+
+	farmAddedConnection = workspace.DescendantAdded:Connect(function(part)
+		if farmRunning and farmMatches(part) then
+			farmAddRecord(part)
+		end
+	end)
+	farmRemovedConnection = workspace.DescendantRemoving:Connect(function(part)
+		farmDropRecord(part)
+	end)
+
+	farmStepConnection = RunService.Stepped:Connect(farmUpdate)
+end
+
+local autofarmButton = createToggleButton(mainPage, "Autofarm", false, function(state)
+	if state then
+		farmStart()
+	else
+		farmStop()
+	end
+end)
+autofarmButton.LayoutOrder = 1
+
+local farmSettingsHeader = Instance.new("TextButton")
+farmSettingsHeader.Size = UDim2.new(1, 0, 0, 24)
+farmSettingsHeader.BackgroundTransparency = 1
+farmSettingsHeader.BorderSizePixel = 0
+farmSettingsHeader.AutoButtonColor = false
+farmSettingsHeader.Font = Enum.Font.GothamBold
+farmSettingsHeader.TextSize = 13
+farmSettingsHeader.TextXAlignment = Enum.TextXAlignment.Left
+farmSettingsHeader.TextColor3 = THEME.muted
+farmSettingsHeader.Text = "▾ Настройки автофарма"
+farmSettingsHeader.LayoutOrder = 2
+farmSettingsHeader.Parent = mainPage
+
+local farmSettingsPadding = Instance.new("UIPadding")
+farmSettingsPadding.PaddingLeft = UDim.new(0, 4)
+farmSettingsPadding.Parent = farmSettingsHeader
+
+local farmSettingsBody = Instance.new("Frame")
+farmSettingsBody.Size = UDim2.new(1, 0, 0, 0)
+farmSettingsBody.BackgroundTransparency = 1
+farmSettingsBody.BorderSizePixel = 0
+farmSettingsBody.ClipsDescendants = true
+farmSettingsBody.LayoutOrder = 3
+farmSettingsBody.Parent = mainPage
+
+local farmSettingsLayout = Instance.new("UIListLayout")
+farmSettingsLayout.Padding = UDim.new(0, 8)
+farmSettingsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+farmSettingsLayout.Parent = farmSettingsBody
+
+local farmSpeedRow = createSlider(farmSettingsBody, "Скорость фарма", FARM_MIN_SPEED, FARM_MAX_SPEED, FARM_SPEED, function(value)
+	FARM_SPEED = math.floor(value + 0.5)
+	if farmAlign then
+		farmAlign.MaxVelocity = FARM_SPEED
+	end
+end)
+farmSpeedRow.LayoutOrder = 3
+
+local farmBagRow = createSlider(farmSettingsBody, "Мешок полон на", FARM_BAG_MIN, FARM_BAG_MAX, FARM_BAG_FULL, function(value)
+	FARM_BAG_FULL = math.floor(value + 0.5)
+end)
+farmBagRow.LayoutOrder = 4
+
+local farmResetRow = createToggle(farmSettingsBody, "Авторесет (полный мешок)", true, function(state)
+	farmAutoReset = state
+	if not state then
+		farmFailParts = setmetatable({}, { __mode = "k" })
+		farmFailStreak = 0
+	end
+end)
+farmResetRow.LayoutOrder = 7
+
+local farmResetInfo = Instance.new("TextLabel")
+farmResetInfo.Size = UDim2.new(1, 0, 0, 30)
+farmResetInfo.BackgroundTransparency = 1
+farmResetInfo.Font = Enum.Font.Gotham
+farmResetInfo.TextSize = 11
+farmResetInfo.TextWrapped = true
+farmResetInfo.TextXAlignment = Enum.TextXAlignment.Left
+farmResetInfo.TextYAlignment = Enum.TextYAlignment.Center
+farmResetInfo.TextColor3 = THEME.muted
+farmResetInfo.Text = "Авторесет: включён"
+farmResetInfo.LayoutOrder = 8
+farmResetInfo.Parent = farmSettingsBody
+
+local farmResetNow = Instance.new("TextButton")
+farmResetNow.Size = UDim2.new(1, 0, 0, 32)
+farmResetNow.BackgroundColor3 = THEME.surface
+farmResetNow.AutoButtonColor = false
+farmResetNow.Font = Enum.Font.GothamMedium
+farmResetNow.TextSize = 13
+farmResetNow.TextColor3 = THEME.accent
+farmResetNow.Text = "Ресетнуть сейчас"
+farmResetNow.LayoutOrder = 9
+farmResetNow.Parent = farmSettingsBody
+Instance.new("UICorner", farmResetNow).CornerRadius = UDim.new(0, 8)
+
+farmResetNow.MouseEnter:Connect(function()
+	farmResetNow.BackgroundColor3 = THEME.surfaceSoft
+end)
+farmResetNow.MouseLeave:Connect(function()
+	farmResetNow.BackgroundColor3 = THEME.surface
+end)
+farmResetNow.Activated:Connect(function()
+	farmResetAt = 0
+	farmRequestReset(os.clock(), "вручную")
+end)
+
+table.insert(accentListeners, function()
+	farmResetNow.TextColor3 = THEME.accent
+end)
+
+task.spawn(function()
+	while farmResetInfo.Parent do
+		local roleName = farmRole == "murderer" and "убийца"
+			or (farmRole == "sheriff" and "шериф"
+				or (farmRole == "innocent" and "невинный" or "неизвестно"))
+
+		if farmAutoReset then
+			local text
+			if farmRole == "murderer" then
+				farmResetInfo.TextColor3 = THEME.muted
+				text = "Авторесет: роль убийца — ресет заблокирован"
+			else
+				farmResetInfo.TextColor3 = THEME.accent
+				text = ("Роль: %s · сбросов %d"):format(
+					roleName, farmResetCount)
+			end
+			if farmFullNote ~= "" then
+				text = text .. " · " .. farmFullNote
+			end
+			farmResetInfo.Text = text
+		else
+			farmResetInfo.TextColor3 = THEME.muted
+			farmResetInfo.Text = "Авторесет: выключен · роль: " .. roleName
+		end
+
+		task.wait(0.5)
+	end
+end)
+
+local farmSettingsRows = {
+	farmSpeedRow,
+	farmBagRow,
+	farmResetRow,
+	farmResetInfo,
+	farmResetNow,
+}
+local farmSettingsOpen = true
+local farmSettingsTween
+
+local farmSettingsHeight = 0
+for index, row in ipairs(farmSettingsRows) do
+	farmSettingsHeight = farmSettingsHeight + row.Size.Y.Offset
+	if index > 1 then
+		farmSettingsHeight = farmSettingsHeight + farmSettingsLayout.Padding.Offset
+	end
+end
+
+local function setFarmSettingsOpen(open, instant)
+	farmSettingsOpen = open
+	if farmSettingsTween then
+		farmSettingsTween:Cancel()
+		farmSettingsTween = nil
+	end
+
+	if open then
+		for _, row in ipairs(farmSettingsRows) do
+			row.Visible = true
+		end
+	end
+
+	local targetHeight = open and farmSettingsHeight or 0
+	if instant then
+		farmSettingsBody.Size = UDim2.new(1, 0, 0, targetHeight)
+		if not open then
+			for _, row in ipairs(farmSettingsRows) do
+				row.Visible = false
+			end
+		end
+	else
+		local tween = TweenService:Create(farmSettingsBody, tweenMed, {
+			Size = UDim2.new(1, 0, 0, targetHeight),
+		})
+		farmSettingsTween = tween
+		tween.Completed:Connect(function(playbackState)
+			if farmSettingsTween == tween then
+				farmSettingsTween = nil
+			end
+			if playbackState == Enum.PlaybackState.Completed and not farmSettingsOpen then
+				for _, row in ipairs(farmSettingsRows) do
+					row.Visible = false
+				end
+			end
+		end)
+		tween:Play()
+	end
+
+	farmSettingsHeader.Text = open and "▾ Настройки автофарма" or "▸ Настройки автофарма"
+end
+
+farmSettingsHeader.Activated:Connect(function()
+	setFarmSettingsOpen(not farmSettingsOpen, false)
+end)
+farmSettingsHeader.MouseEnter:Connect(function()
+	farmSettingsHeader.TextColor3 = THEME.text
+end)
+farmSettingsHeader.MouseLeave:Connect(function()
+	farmSettingsHeader.TextColor3 = THEME.muted
+end)
+setFarmSettingsOpen(true, true)
+
+local antiAfkConnection
+local antiAfkToken = 0
+
+local function jump()
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health > 0 then
+		humanoid.Jump = true
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+	end
+end
+
+local function setAntiAfk(state)
+	if antiAfkConnection then
+		antiAfkConnection:Disconnect()
+		antiAfkConnection = nil
+	end
+
+	antiAfkToken = antiAfkToken + 1
+
+	if not state then
+		return
+	end
+
+	antiAfkConnection = player.Idled:Connect(function()
+		VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+		task.wait(1)
+		VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+	end)
+
+	local token = antiAfkToken
+	task.spawn(function()
+		while antiAfkToken == token do
+			jump()
+			task.wait(45)
+		end
+	end)
+end
+
+local antiAfkButton = createToggleButton(mainPage, "Anti AFK", false, setAntiAfk)
+antiAfkButton.LayoutOrder = 8
+
+local placeholder = Instance.new("TextLabel")
+placeholder.Size = UDim2.new(1, 0, 0, 20)
+placeholder.BackgroundTransparency = 1
+placeholder.Font = Enum.Font.Gotham
+placeholder.TextSize = 13
+placeholder.TextWrapped = true
+placeholder.TextXAlignment = Enum.TextXAlignment.Center
+placeholder.TextColor3 = THEME.muted
+placeholder.Text = "Скоро здесь что-то будет"
+placeholder.LayoutOrder = 9
+placeholder.Parent = mainPage
+
+local settingsPage = createTab("Настройки")
+
+local function applySize()
+	root.Size = UDim2.fromOffset(menuWidth, menuHeight)
+	shadow.Size = UDim2.fromOffset(menuWidth + 20, menuHeight + 22)
+end
+
+local function createColorRow(page)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 68)
+	row.BackgroundColor3 = THEME.surface
+	row.BorderSizePixel = 0
+	row.Parent = page
+	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+
+	local label = Instance.new("TextLabel")
+	label.Position = UDim2.fromOffset(14, 10)
+	label.Size = UDim2.new(1, -28, 0, 16)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamMedium
+	label.TextSize = 13
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextColor3 = THEME.text
+	label.Text = "Цвет акцента"
+	label.Parent = row
+
+	local strip = Instance.new("Frame")
+	strip.Position = UDim2.fromOffset(12, 32)
+	strip.Size = UDim2.new(1, -24, 0, 26)
+	strip.BackgroundTransparency = 1
+	strip.Parent = row
+	local stripLayout = Instance.new("UIListLayout")
+	stripLayout.FillDirection = Enum.FillDirection.Horizontal
+	stripLayout.Padding = UDim.new(0, 8)
+	stripLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	stripLayout.Parent = strip
+
+	local palette = {
+		Color3.fromRGB(112, 96, 255),
+		Color3.fromRGB(64, 132, 255),
+		Color3.fromRGB(46, 196, 182),
+		Color3.fromRGB(76, 200, 120),
+		Color3.fromRGB(255, 150, 60),
+		Color3.fromRGB(240, 80, 120),
+	}
+
+	local swatches = {}
+
+	for _, color in ipairs(palette) do
+		local swatch = Instance.new("TextButton")
+		swatch.Size = UDim2.fromOffset(24, 24)
+		swatch.BackgroundColor3 = color
+		swatch.AutoButtonColor = false
+		swatch.Text = ""
+		swatch.Parent = strip
+		Instance.new("UICorner", swatch).CornerRadius = UDim.new(1, 0)
+
+		local outline = Instance.new("UIStroke")
+		outline.Color = Color3.fromRGB(255, 255, 255)
+		outline.Thickness = 2
+		outline.Transparency = 1
+		outline.Parent = swatch
+
+		swatch.Activated:Connect(function()
+			setAccent(color)
+			for _, other in ipairs(swatches) do
+				local stroke = other:FindFirstChildOfClass("UIStroke")
+				if stroke then
+					stroke.Transparency = other == swatch and 0 or 1
+				end
+			end
+		end)
+
+		table.insert(swatches, swatch)
+	end
+
+	local first = swatches[1]
+	local firstStroke = first and first:FindFirstChildOfClass("UIStroke")
+	if firstStroke then
+		firstStroke.Transparency = 0
+	end
+
+	return row
+end
+
+createSlider(settingsPage, "Ширина меню", 400, 760, menuWidth, function(value)
+	menuWidth = math.floor(value + 0.5)
+	applySize()
+end)
+createSlider(settingsPage, "Высота меню", 260, 520, menuHeight, function(value)
+	menuHeight = math.floor(value + 0.5)
+	applySize()
+end)
+createColorRow(settingsPage)
+
+local socialPage = createTab("Соц сети")
+tabs["Главная"].LayoutOrder = 1
+tabs["Настройки"].LayoutOrder = 2
+tabs["Соц сети"].LayoutOrder = 3
+
+local socialTitle = Instance.new("TextLabel")
+socialTitle.Size = UDim2.new(1, 0, 0, 30)
+socialTitle.BackgroundTransparency = 1
+socialTitle.Font = Enum.Font.GothamBold
+socialTitle.TextSize = 14
+socialTitle.TextXAlignment = Enum.TextXAlignment.Left
+socialTitle.TextColor3 = THEME.text
+socialTitle.Text = "Соц сети Разработчика/Кодера"
+socialTitle.LayoutOrder = 1
+socialTitle.Parent = socialPage
+
+local function createSocialRow(order, text)
+	local row = Instance.new("TextLabel")
+	row.Size = UDim2.new(1, 0, 0, 36)
+	row.BackgroundColor3 = THEME.surface
+	row.BorderSizePixel = 0
+	row.Font = Enum.Font.GothamMedium
+	row.TextSize = 14
+	row.TextXAlignment = Enum.TextXAlignment.Left
+	row.TextColor3 = THEME.text
+	row.Text = text
+	row.LayoutOrder = order
+	row.Parent = socialPage
+	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 14)
+	padding.Parent = row
+	return row
+end
+
+createSocialRow(2, "Tiktok: money_caoff")
+createSocialRow(3, "Telegram: money_caoff")
+createSocialRow(4, "Discord: b1che")
+
+local socialFooter = Instance.new("TextLabel")
+socialFooter.Size = UDim2.new(1, 0, 0, 54)
+socialFooter.BackgroundTransparency = 1
+socialFooter.Font = Enum.Font.Gotham
+socialFooter.TextSize = 12
+socialFooter.TextWrapped = true
+socialFooter.TextXAlignment = Enum.TextXAlignment.Center
+socialFooter.TextYAlignment = Enum.TextYAlignment.Center
+socialFooter.TextColor3 = THEME.muted
+socialFooter.Text = "Подпишитесь пожалуйста, я кучу нервов убил на это говно"
+socialFooter.LayoutOrder = 5
+socialFooter.Parent = socialPage
+
+selectTab("Главная")
